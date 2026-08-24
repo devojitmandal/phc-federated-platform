@@ -980,3 +980,7 @@ CREATE POLICY voice_sessions_worker ON voice_sessions
     AND facility_id = public.current_user_facility_id()
     AND user_id = auth.uid()
   );
+CREATE POLICY redistribution_elevated_update ON redistribution_recommendations
+  FOR UPDATE TO authenticated
+  USING (public.current_user_role() IN ('district_admin', 'state_viewer', 'national_admin'))
+  WITH CHECK (public.current_user_role() IN ('district_admin', 'state_viewer', 'national_admin'));
