@@ -51,3 +51,6 @@ src/
 | national@phc.demo | national_admin |
 
 Password: `demo123456`
+# phc-federated-platform
+Federated AI platform for real-time PHC medicine stock, bed, and staff tracking across Indian districts. This project is built for Code for Communities 2.
+dfc02f8c796c2e751d3932d40ad38d16724fe3d9
