@@ -181,23 +181,24 @@ export interface VoiceSession {
 export interface Database {
   public: {
     Tables: {
-      profiles: { Row: Profile; Insert: Partial<Profile> & { id: string; role: UserRole }; Update: Partial<Profile> }
-      states: { Row: State; Insert: Partial<State>; Update: Partial<State> }
-      districts: { Row: District; Insert: Partial<District>; Update: Partial<District> }
-      facilities: { Row: Facility; Insert: Partial<Facility>; Update: Partial<Facility> }
-      medicines: { Row: Medicine; Insert: Partial<Medicine>; Update: Partial<Medicine> }
-      staff: { Row: Staff; Insert: Partial<Staff>; Update: Partial<Staff> }
-      inventory_snapshots: { Row: InventorySnapshot; Insert: Partial<InventorySnapshot>; Update: Partial<InventorySnapshot> }
-      bed_status: { Row: BedStatus; Insert: Partial<BedStatus>; Update: Partial<BedStatus> }
-      attendance_logs: { Row: AttendanceLog; Insert: Partial<AttendanceLog>; Update: Partial<AttendanceLog> }
-      district_inventory_rollup: { Row: DistrictInventoryRollup; Insert: Partial<DistrictInventoryRollup>; Update: Partial<DistrictInventoryRollup> }
-      district_bed_rollup: { Row: DistrictBedRollup; Insert: Partial<DistrictBedRollup>; Update: Partial<DistrictBedRollup> }
-      district_attendance_rollup: { Row: DistrictAttendanceRollup; Insert: Partial<DistrictAttendanceRollup>; Update: Partial<DistrictAttendanceRollup> }
-      forecasts: { Row: Forecast; Insert: Partial<Forecast>; Update: Partial<Forecast> }
-      alerts: { Row: Alert; Insert: Partial<Alert>; Update: Partial<Alert> }
-      redistribution_recommendations: { Row: RedistributionRecommendation; Insert: Partial<RedistributionRecommendation>; Update: Partial<RedistributionRecommendation> }
-      voice_sessions: { Row: VoiceSession; Insert: Partial<VoiceSession>; Update: Partial<VoiceSession> }
+      profiles: { Row: Profile; Insert: Partial<Profile> & { id: string; role: UserRole }; Update: Partial<Profile>; Relationships: [] }
+      states: { Row: State; Insert: Partial<State>; Update: Partial<State>; Relationships: [] }
+      districts: { Row: District; Insert: Partial<District>; Update: Partial<District>; Relationships: [] }
+      facilities: { Row: Facility; Insert: Partial<Facility>; Update: Partial<Facility>; Relationships: [] }
+      medicines: { Row: Medicine; Insert: Partial<Medicine>; Update: Partial<Medicine>; Relationships: [] }
+      staff: { Row: Staff; Insert: Partial<Staff>; Update: Partial<Staff>; Relationships: [] }
+      inventory_snapshots: { Row: InventorySnapshot; Insert: Partial<InventorySnapshot>; Update: Partial<InventorySnapshot>; Relationships: [] }
+      bed_status: { Row: BedStatus; Insert: Partial<BedStatus>; Update: Partial<BedStatus>; Relationships: [] }
+      attendance_logs: { Row: AttendanceLog; Insert: Partial<AttendanceLog>; Update: Partial<AttendanceLog>; Relationships: [] }
+      district_inventory_rollup: { Row: DistrictInventoryRollup; Insert: Partial<DistrictInventoryRollup>; Update: Partial<DistrictInventoryRollup>; Relationships: [] }
+      district_bed_rollup: { Row: DistrictBedRollup; Insert: Partial<DistrictBedRollup>; Update: Partial<DistrictBedRollup>; Relationships: [] }
+      district_attendance_rollup: { Row: DistrictAttendanceRollup; Insert: Partial<DistrictAttendanceRollup>; Update: Partial<DistrictAttendanceRollup>; Relationships: [] }
+      forecasts: { Row: Forecast; Insert: Partial<Forecast>; Update: Partial<Forecast>; Relationships: [] }
+      alerts: { Row: Alert; Insert: Partial<Alert>; Update: Partial<Alert>; Relationships: [] }
+      redistribution_recommendations: { Row: RedistributionRecommendation; Insert: Partial<RedistributionRecommendation>; Update: Partial<RedistributionRecommendation>; Relationships: [] }
+      voice_sessions: { Row: VoiceSession; Insert: Partial<VoiceSession>; Update: Partial<VoiceSession>; Relationships: [] }
     }
+    Views: {}
     Functions: {
       refresh_rollups: {
         Args: { p_district_id?: string | null }
@@ -210,5 +211,6 @@ export interface Database {
       attendance_status: AttendanceStatus
       stockout_risk: StockoutRisk
     }
+    CompositeTypes: {}
   }
 }
