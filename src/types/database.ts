@@ -177,6 +177,16 @@ export interface VoiceSession {
   confirmation_text_hi: string | null
   status: string
 }
+export interface PublicBedAvailability {
+  facility_id: string
+  name_en: string
+  name_hi: string
+  facility_type: string
+  lat: number
+  lng: number
+  availability_tier: 'unknown' | 'full' | 'low' | 'moderate' | 'high'
+  recorded_at: string
+}
 
 export interface Database {
   public: {
@@ -198,7 +208,9 @@ export interface Database {
       redistribution_recommendations: { Row: RedistributionRecommendation; Insert: Partial<RedistributionRecommendation>; Update: Partial<RedistributionRecommendation>; Relationships: [] }
       voice_sessions: { Row: VoiceSession; Insert: Partial<VoiceSession>; Update: Partial<VoiceSession>; Relationships: [] }
     }
-    Views: {}
+    Views: {
+      public_bed_availability: { Row: PublicBedAvailability; Relationships: [] }
+    }
     Functions: {
       refresh_rollups: {
         Args: { p_district_id?: string | null }

@@ -29,6 +29,21 @@ const MEDICINE_BASE_STOCK: Record<string, number> = {
   IRON100: 350,
 }
 
+const DAYS = 30
+const BATCH_SIZE = 500
+
+async function insertInBatches(table: string, rows: any[], upsertConflict?: string) {
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE)
+    const query = upsertConflict
+      ? admin.from(table).upsert(batch, { onConflict: upsertConflict })
+      : admin.from(table).insert(batch)
+    const { error } = await query
+    if (error) console.error(`${table} batch ${i}: ${error.message}`)
+  }
+  console.log(`  ${table}: ${rows.length} rows`)
+}
+
 async function main() {
   const { data: facilities } = await admin.from('facilities').select('id, bed_capacity, code')
   const { data: medicines } = await admin.from('medicines').select('id, code, unit')
@@ -39,35 +54,40 @@ async function main() {
     process.exit(1)
   }
 
-  const days = 30
-  let snapshotCount = 0
+  const bedRows: any[] = []
+  const inventoryRows: any[] = []
+  const attendanceRows: any[] = []
 
-  for (let d = days; d >= 0; d--) {
+  for (let d = DAYS; d >= 0; d--) {
     const date = new Date()
     date.setDate(date.getDate() - d)
     const dateStr = date.toISOString().slice(0, 10)
     const recordedAt = new Date(date)
     recordedAt.setHours(9, 0, 0, 0)
 
+    // daysElapsed: 0 on the oldest day, DAYS on today — depletion grows as we approach today
+    const daysElapsed = DAYS - d
+
     for (const facility of facilities) {
-      // Beds — vary occupancy
       const occupancy = Math.floor(Math.random() * (facility.bed_capacity + 1))
-      await admin.from('bed_status').insert({
+      bedRows.push({
         facility_id: facility.id,
         total_beds: facility.bed_capacity,
         occupied_beds: occupancy,
         recorded_at: recordedAt.toISOString(),
       })
 
-      // Inventory — key medicines with declining trend for some districts
+      // Every facility x medicine gets a snapshot every day — no gaps,
+      // so the exact-date consumption match always has data to compare.
       for (const med of medicines) {
-        if (!MEDICINE_BASE_STOCK[med.code] && Math.random() > 0.3) continue
         const base = MEDICINE_BASE_STOCK[med.code] ?? 200
-        const decline = facility.code.includes('JDH') && med.code === 'PARA500' ? d * 8 : d * 2
-        const noise = Math.floor(Math.random() * 50)
-        const qty = Math.max(0, base - decline + noise)
+        // Steeper depletion for the "JDH" demo district's paracetamol, to
+        // produce a clear critical-risk example for the forecast demo.
+        const dailyRate = facility.code.includes('JDH') && med.code === 'PARA500' ? 8 : 2
+        const noise = Math.floor(Math.random() * 20) - 10 // small daily jitter, +/-10
+        const qty = Math.max(0, base - daysElapsed * dailyRate + noise)
 
-        await admin.from('inventory_snapshots').insert({
+        inventoryRows.push({
           facility_id: facility.id,
           medicine_id: med.id,
           quantity: qty,
@@ -75,28 +95,28 @@ async function main() {
           source: 'manual',
           recorded_at: recordedAt.toISOString(),
         })
-        snapshotCount++
       }
 
-      // Attendance
       const facilityStaff = staffRows?.filter((s) => s.facility_id === facility.id) ?? []
       for (const s of facilityStaff) {
-        const status = Math.random() > 0.15 ? 'present' : Math.random() > 0.5 ? 'absent' : 'on_leave'
-        await admin.from('attendance_logs').upsert(
-          {
-            facility_id: facility.id,
-            staff_id: s.id,
-            log_date: dateStr,
-            status,
-            recorded_at: recordedAt.toISOString(),
-          },
-          { onConflict: 'facility_id,staff_id,log_date' },
-        )
+        const roll = Math.random()
+        const status = roll < 0.05 ? 'on_leave' : roll < 0.15 ? 'absent' : 'present'
+        attendanceRows.push({
+          facility_id: facility.id,
+          staff_id: s.id,
+          log_date: dateStr,
+          status,
+          recorded_at: recordedAt.toISOString(),
+        })
       }
     }
   }
 
-  console.log(`Inserted ~${snapshotCount} inventory snapshots over ${days + 1} days`)
+  console.log(`Inserting ${bedRows.length} bed rows, ${inventoryRows.length} inventory rows, ${attendanceRows.length} attendance rows...`)
+  await insertInBatches('bed_status', bedRows)
+  await insertInBatches('inventory_snapshots', inventoryRows)
+  await insertInBatches('attendance_logs', attendanceRows, 'facility_id,staff_id,log_date')
+
   console.log('Running refresh_rollups...')
   const { data, error } = await admin.rpc('refresh_rollups', { p_district_id: null })
   if (error) console.error('Rollup error:', error.message)
