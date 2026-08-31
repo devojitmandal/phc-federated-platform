@@ -1,7 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { formatSuggestion } from '@/lib/geo'
 import { usePatientFinder } from '@/hooks/usePatientFinder'
-import { Link } from 'react-router-dom'
 import EmergencyBanner from '@/components/EmergencyBanner'
 
 function AvailabilityPill({ tier }: { tier: 'high' | 'moderate' | 'low' | 'full' | 'unknown' }) {

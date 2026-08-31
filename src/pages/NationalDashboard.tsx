@@ -54,7 +54,7 @@ export default function NationalDashboard() {
       setInventory(inv as NationalInventoryRow[])
       setBeds(bed as NationalBedRow | null)
       setStates(st as State[])
-      setRiskGrid(risk as RiskGridRow[])
+      setRiskGrid(risk as unknown as RiskGridRow[])
     } finally {
       setLoading(false)
     }
