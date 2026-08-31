@@ -984,3 +984,18 @@ CREATE POLICY redistribution_elevated_update ON redistribution_recommendations
   FOR UPDATE TO authenticated
   USING (public.current_user_role() IN ('district_admin', 'state_viewer', 'national_admin'))
   WITH CHECK (public.current_user_role() IN ('district_admin', 'state_viewer', 'national_admin'));
+
+  DROP POLICY IF EXISTS district_inventory_rollup_elevated ON district_inventory_rollup;
+CREATE POLICY district_inventory_rollup_elevated ON district_inventory_rollup
+  FOR SELECT TO authenticated
+  USING (public.current_user_role() IN ('state_viewer', 'national_admin'));
+
+DROP POLICY IF EXISTS district_bed_rollup_elevated ON district_bed_rollup;
+CREATE POLICY district_bed_rollup_elevated ON district_bed_rollup
+  FOR SELECT TO authenticated
+  USING (public.current_user_role() IN ('state_viewer', 'national_admin'));
+
+DROP POLICY IF EXISTS district_attendance_rollup_elevated ON district_attendance_rollup;
+CREATE POLICY district_attendance_rollup_elevated ON district_attendance_rollup
+  FOR SELECT TO authenticated
+  USING (public.current_user_role() IN ('state_viewer', 'national_admin'));
