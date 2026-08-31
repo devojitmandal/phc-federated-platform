@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import Button from '@/components/ui/Button'
 
 interface BedFormProps {
@@ -9,9 +10,10 @@ interface BedFormProps {
 }
 
 export default function BedForm({ bedCapacity, loading, latest, onSubmit }: BedFormProps) {
+  const { t } = useTranslation()
   const [totalBeds, setTotalBeds] = useState(String(bedCapacity))
   const [occupiedBeds, setOccupiedBeds] = useState('0')
-  const [message, setMessage] = useState<string | null>(null)
+  const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null)
 
   useEffect(() => {
     if (latest) {
@@ -27,15 +29,20 @@ export default function BedForm({ bedCapacity, loading, latest, onSubmit }: BedF
     setMessage(null)
     const total = Number(totalBeds)
     const occupied = Number(occupiedBeds)
+    
     if (occupied > total) {
-      setMessage('Occupied beds cannot exceed total beds.')
+      setMessage({ text: t('Occupied beds cannot exceed total beds.'), isError: true })
       return
     }
+    
     try {
       await onSubmit(total, occupied)
-      setMessage('Bed status updated.')
+      setMessage({ text: t('Bed status updated.'), isError: false })
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to update beds')
+      setMessage({ 
+        text: err instanceof Error ? err.message : t('Failed to update beds'), 
+        isError: true 
+      })
     }
   }
 
@@ -46,7 +53,7 @@ export default function BedForm({ bedCapacity, loading, latest, onSubmit }: BedF
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="mb-1 block text-sm font-medium">Total beds</label>
+          <label className="mb-1 block text-sm font-medium">{t('Total beds')}</label>
           <input
             type="number"
             min="0"
@@ -57,7 +64,7 @@ export default function BedForm({ bedCapacity, loading, latest, onSubmit }: BedF
           />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium">Occupied beds</label>
+          <label className="mb-1 block text-sm font-medium">{t('Occupied beds')}</label>
           <input
             type="number"
             min="0"
@@ -69,17 +76,20 @@ export default function BedForm({ bedCapacity, loading, latest, onSubmit }: BedF
           />
         </div>
       </div>
+      
       <div className="rounded-lg bg-slate-50 p-3 text-sm">
-        <span className="font-medium">{available}</span> available ·{' '}
-        <span className={pct > 80 ? 'text-amber-600 font-medium' : ''}>{pct}% occupancy</span>
+        <span className="font-medium">{available}</span> {t('available')} ·{' '}
+        <span className={pct > 80 ? 'text-amber-600 font-medium' : ''}>{pct}{t('% occupancy')}</span>
       </div>
+      
       {message && (
-        <p className={`text-sm ${message.includes('updated') ? 'text-emerald-600' : 'text-red-600'}`}>
-          {message}
+        <p className={`text-sm ${message.isError ? 'text-red-600' : 'text-emerald-600'}`}>
+          {message.text}
         </p>
       )}
+      
       <Button type="submit" disabled={loading}>
-        {loading ? 'Saving…' : 'Update bed status'}
+        {loading ? t('Saving…') : t('Update bed status')}
       </Button>
     </form>
   )

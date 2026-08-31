@@ -15,23 +15,36 @@ export function getGeminiApiKey() {
 
 export async function callGemini(prompt: string): Promise<string> {
   const apiKey = getGeminiApiKey()
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: 'application/json' },
-      }),
-    },
-  )
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`Gemini API error: ${err}`)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 20000) // 20s timeout
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json' },
+        }),
+        signal: controller.signal,
+      },
+    )
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(`Gemini API error: ${err}`)
+    }
+    const json = await res.json()
+    return json.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Gemini API request timed out after 20s')
+    }
+    throw err
+  } finally {
+    clearTimeout(timeout)
   }
-  const json = await res.json()
-  return json.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
 }
 
 export async function parseRequestBody<T>(req: Request): Promise<T> {

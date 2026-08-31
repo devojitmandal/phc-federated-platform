@@ -1,5 +1,5 @@
-// src/components/facility/StockForm.tsx
 import { FormEvent, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import Button from '@/components/ui/Button'
 import type { Medicine } from '@/types/database'
 
@@ -10,11 +10,12 @@ interface StockFormProps {
 }
 
 export function StockForm({ medicines, loading, onSubmit }: StockFormProps) {
+  const { t } = useTranslation()
   const [medicineId, setMedicineId] = useState('')
   const [quantity, setQuantity] = useState('')
   const [unit, setUnit] = useState('')
   const [batchExpiry, setBatchExpiry] = useState('')
-  const [message, setMessage] = useState<string | null>(null)
+  const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null)
 
   function handleMedicineChange(id: string) {
     setMedicineId(id)
@@ -27,33 +28,36 @@ export function StockForm({ medicines, loading, onSubmit }: StockFormProps) {
     setMessage(null)
 
     if (!medicineId || !quantity) {
-      setMessage('Select a medicine and enter a quantity.')
+      setMessage({ text: t('Select a medicine and enter a quantity.'), isError: true })
       return
     }
 
     try {
       await onSubmit(medicineId, Number(quantity), unit, batchExpiry || undefined)
-      setMessage('Stock updated.')
+      setMessage({ text: t('Stock updated.'), isError: false })
       setMedicineId('')
       setQuantity('')
       setUnit('')
       setBatchExpiry('')
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to update stock')
+      setMessage({ 
+        text: err instanceof Error ? err.message : t('Failed to update stock'), 
+        isError: true 
+      })
     }
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="mb-1 block text-sm font-medium">Medicine</label>
+        <label className="mb-1 block text-sm font-medium">{t('Medicine')}</label>
         <select
           value={medicineId}
           onChange={(e) => handleMedicineChange(e.target.value)}
           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
           required
         >
-          <option value="">Select medicine</option>
+          <option value="">{t('Select medicine')}</option>
           {medicines.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name_en} ({m.name_hi})
@@ -64,7 +68,7 @@ export function StockForm({ medicines, loading, onSubmit }: StockFormProps) {
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="mb-1 block text-sm font-medium">Quantity</label>
+          <label className="mb-1 block text-sm font-medium">{t('Quantity')}</label>
           <input
             type="number"
             min="0"
@@ -75,7 +79,7 @@ export function StockForm({ medicines, loading, onSubmit }: StockFormProps) {
           />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium">Unit</label>
+          <label className="mb-1 block text-sm font-medium">{t('Unit')}</label>
           <input
             type="text"
             value={unit}
@@ -87,7 +91,7 @@ export function StockForm({ medicines, loading, onSubmit }: StockFormProps) {
       </div>
 
       <div>
-        <label className="mb-1 block text-sm font-medium">Batch expiry (optional)</label>
+        <label className="mb-1 block text-sm font-medium">{t('Batch expiry (optional)')}</label>
         <input
           type="date"
           value={batchExpiry}
@@ -97,13 +101,13 @@ export function StockForm({ medicines, loading, onSubmit }: StockFormProps) {
       </div>
 
       {message && (
-        <p className={`text-sm ${message.includes('updated') ? 'text-emerald-600' : 'text-red-600'}`}>
-          {message}
+        <p className={`text-sm ${message.isError ? 'text-red-600' : 'text-emerald-600'}`}>
+          {message.text}
         </p>
       )}
 
       <Button type="submit" disabled={loading}>
-        {loading ? 'Saving…' : 'Save stock update'}
+        {loading ? t('Saving…') : t('Save stock update')}
       </Button>
     </form>
   )

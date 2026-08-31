@@ -5,18 +5,23 @@ import FacilityDashboard from './pages/FacilityDashboard'
 import DistrictDashboard from './pages/DistrictDashboard'
 import StateDashboard from './pages/StateDashboard'
 import NationalDashboard from './pages/NationalDashboard'
+import { FontSizeProvider } from './components/FontSizeContext'
+import FloatingAccessibility from './components/FloatingAccessibility'
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<PatientFinder />} />
-      <Route path="/staff-login" element={<Login />} />
-      <Route path="/facility" element={<FacilityDashboard />} />
-      <Route path="/district" element={<DistrictDashboard />} />
-      <Route path="/state" element={<StateDashboard />} />
-      <Route path="/national" element={<NationalDashboard />} />
-    </Routes>
-    
+    <FontSizeProvider>
+      {/* This button will globally render on all pages EXCEPT the home page */}
+      <FloatingAccessibility />
+      
+      <Routes>
+        <Route path="/" element={<PatientFinder />} />
+        <Route path="/staff-login" element={<Login />} />
+        <Route path="/facility" element={<FacilityDashboard />} />
+        <Route path="/district" element={<DistrictDashboard />} />
+        <Route path="/state" element={<StateDashboard />} />
+        <Route path="/national" element={<NationalDashboard />} />
+      </Routes>
+    </FontSizeProvider>
   )
-  
 }
