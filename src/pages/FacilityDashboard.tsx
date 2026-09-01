@@ -73,6 +73,8 @@ export default function FacilityDashboard() {
 
             <SectionCard title={t('Bed availability')}>
               <BedForm
+                facilityId={facility?.id}
+                facilityName={facility?.name_en}
                 bedCapacity={facility?.bed_capacity ?? 6}
                 loading={bedLoading}
                 latest={latest}

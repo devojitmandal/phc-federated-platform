@@ -137,19 +137,24 @@ export function useAttendance(facilityId: string | null) {
   }, [facilityId])
 
   const logAttendance = useCallback(
-    async (staffId: string, status: 'present' | 'absent' | 'on_leave') => {
+    async (records: Array<{ staffId: string; status: 'present' | 'absent' | 'on_leave' }>) => {
       if (!facilityId) throw new Error('No facility assigned')
       setLoading(true)
       try {
         const { data: { user } } = await supabase.auth.getUser()
+        
+        
+        const upsertPayload = records.map((record) => ({
+          facility_id: facilityId,
+          staff_id: record.staffId,
+          log_date: today,
+          status: record.status,
+          recorded_by: user?.id,
+        }))
+
+        // Send all rows in one single database call
         const { error } = await supabase.from('attendance_logs').upsert(
-          {
-            facility_id: facilityId,
-            staff_id: staffId,
-            log_date: today,
-            status,
-            recorded_by: user?.id,
-          },
+          upsertPayload,
           { onConflict: 'facility_id,staff_id,log_date' },
         )
         if (error) throw error

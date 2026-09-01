@@ -3,17 +3,20 @@ import { useTranslation } from 'react-i18next'
 import Button from '@/components/ui/Button'
 
 interface BedFormProps {
+  facilityId?: string
+  facilityName?: string
   bedCapacity: number
   loading: boolean
   latest: { total_beds: number; occupied_beds: number } | null
   onSubmit: (totalBeds: number, occupiedBeds: number) => Promise<void>
 }
 
-export default function BedForm({ bedCapacity, loading, latest, onSubmit }: BedFormProps) {
+export default function BedForm({ facilityId, facilityName, bedCapacity, loading, latest, onSubmit }: BedFormProps) {
   const { t } = useTranslation()
   const [totalBeds, setTotalBeds] = useState(String(bedCapacity))
   const [occupiedBeds, setOccupiedBeds] = useState('0')
   const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null)
+  const [aiPlan, setAiPlan] = useState<string | null>(null)
 
   useEffect(() => {
     if (latest) {
@@ -27,6 +30,8 @@ export default function BedForm({ bedCapacity, loading, latest, onSubmit }: BedF
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setMessage(null)
+    setAiPlan(null)
+    
     const total = Number(totalBeds)
     const occupied = Number(occupiedBeds)
     
@@ -38,6 +43,27 @@ export default function BedForm({ bedCapacity, loading, latest, onSubmit }: BedF
     try {
       await onSubmit(total, occupied)
       setMessage({ text: t('Bed status updated.'), isError: false })
+
+      // --- THE AI TRIGGER ---
+      const calculatedPct = total > 0 ? Math.round((occupied / total) * 100) : 0
+      if (calculatedPct >= 95 && facilityId && facilityName) {
+        setAiPlan('🚨 Critical capacity reached. Gemini AI is analyzing regional network for diversion protocol...')
+        
+        const res = await fetch('/api/redistribute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            overloadedFacilityId: facilityId,
+            overloadedFacilityName: facilityName,
+            issueType: 'Bed capacity overload (95%+)'
+          })
+        })
+        
+        const data = await res.json()
+        if (data.plan) {
+          setAiPlan(`🚨 AI DIVERSION ACTIVE: ${data.plan}`)
+        }
+      }
     } catch (err) {
       setMessage({ 
         text: err instanceof Error ? err.message : t('Failed to update beds'), 
@@ -86,6 +112,12 @@ export default function BedForm({ bedCapacity, loading, latest, onSubmit }: BedF
         <p className={`text-sm ${message.isError ? 'text-red-600' : 'text-emerald-600'}`}>
           {message.text}
         </p>
+      )}
+
+      {aiPlan && (
+        <div className="mt-4 animate-fade-in rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm">
+          <p className="font-label text-sm font-medium text-red-800">{aiPlan}</p>
+        </div>
       )}
       
       <Button type="submit" disabled={loading}>

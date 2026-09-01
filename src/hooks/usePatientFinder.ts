@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { rankFacilities, type RankedFacility } from '@/lib/geo'
+import { detectAndApplyLanguage } from '@/lib/regionLanguage'
 
 export function usePatientFinder() {
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null)
@@ -24,6 +25,8 @@ export function usePatientFinder() {
         const lng = pos.coords.longitude
         setLocation({ lat, lng })
 
+        void detectAndApplyLanguage(lat, lng)
+
         const { data, error: fetchError } = await supabase
           .from('public_bed_availability')
           .select('*')
@@ -31,7 +34,20 @@ export function usePatientFinder() {
         if (fetchError) {
           setError(fetchError.message)
         } else if (data) {
-          setRanked(rankFacilities(lat, lng, data))
+          // 1. Calculate raw geographic distance
+          const distanceRanked = rankFacilities(lat, lng, data)
+          
+          // 2. THE REROUTING LOGIC: Actively demote overloaded facilities
+          const emergencyRerouted = distanceRanked.sort((a, b) => {
+            const aIsFull = a.facility.availability_tier === 'full'
+            const bIsFull = b.facility.availability_tier === 'full'
+            
+            if (aIsFull && !bIsFull) return 1  // Push a down
+            if (!aIsFull && bIsFull) return -1 // Push b down
+            return 0 // Otherwise, keep the original distance-based sorting
+          })
+
+          setRanked(emergencyRerouted)
         }
         setLoading(false)
       },

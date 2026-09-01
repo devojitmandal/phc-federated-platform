@@ -155,7 +155,18 @@ export function useNationalRollups() {
       .select('district_id, days_of_supply, districts(name_en, name_hi, state_id)')
       .eq('snapshot_date', today)
       .not('days_of_supply', 'is', null)
-    return data ?? []
+      .order('days_of_supply', { ascending: true })
+  
+    if (!data) return []
+  
+    // Keep only the worst (lowest days_of_supply) row per district
+    const worstPerDistrict = new Map<string, (typeof data)[number]>()
+    for (const row of data) {
+      if (!worstPerDistrict.has(row.district_id)) {
+        worstPerDistrict.set(row.district_id, row)
+      }
+    }
+    return Array.from(worstPerDistrict.values())
   }, [])
 
   return { fetchNationalInventory, fetchNationalBeds, fetchStates, fetchDistrictRiskGrid }

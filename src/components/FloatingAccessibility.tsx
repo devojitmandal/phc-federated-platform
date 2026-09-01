@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useFontSize } from '@/components/FontSizeContext';
 import { Globe, MapPin, Loader2 } from 'lucide-react';
+import { getOrderedLanguages } from '@/lib/regionLanguage'
 
 export default function FloatingAccessibility() {
   const location = useLocation();
@@ -14,7 +15,6 @@ export default function FloatingAccessibility() {
 
   if (location.pathname === '/') return null;
 
-  // Language mapping based on detected Indian states
   const handleSmartLocationDetect = () => {
     if (!navigator.geolocation) {
       alert("Geolocation is not supported by your browser");
@@ -28,7 +28,6 @@ export default function FloatingAccessibility() {
       async (position) => {
         try {
           const { latitude, longitude } = position.coords;
-          // Free public reverse geocoding API to find state/country without paid keys
           const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
           const data = await res.json();
           
@@ -37,7 +36,7 @@ export default function FloatingAccessibility() {
 
           console.log("Detected State:", state);
 
-          // Smart auto-selection logic based on region
+          
           if (state.toLowerCase().includes("west bengal")) {
             i18n.changeLanguage('bn');
             setLocationMessage("📍 West Bengal detected: Switched to Bengali (बंगाली)");
@@ -61,7 +60,6 @@ export default function FloatingAccessibility() {
           setLocationMessage("Could not resolve region.");
         } finally {
           setIsDetecting(false);
-          // Clear notification message after 5 seconds
           setTimeout(() => setLocationMessage(null), 5000);
         }
       },
@@ -91,18 +89,17 @@ export default function FloatingAccessibility() {
       {/* Language Selector Dropdown */}
       <div className="flex items-center gap-1.5 border-r border-gray-200 pr-2 dark:border-gray-700">
         <Globe className="h-4 w-4 text-gray-500" />
-        <select 
-          value={i18n.language}
-          onChange={(e) => i18n.changeLanguage(e.target.value)}
-          className="bg-transparent text-xs font-medium text-gray-700 focus:outline-none dark:text-gray-300 cursor-pointer"
-        >
-          <option value="en" className="dark:bg-gray-900">English</option>
-          <option value="hi" className="dark:bg-gray-900">हिंदी (Hindi)</option>
-          <option value="bn" className="dark:bg-gray-900">বাংলা (Bengali)</option>
-          <option value="te" className="dark:bg-gray-900">తెలుగు (Telugu)</option>
-          <option value="ta" className="dark:bg-gray-900">தமிழ் (Tamil)</option>
-          <option value="mr" className="dark:bg-gray-900">मराठी (Marathi)</option>
-        </select>
+        <select
+  value={i18n.language}
+  onChange={(e) => i18n.changeLanguage(e.target.value)}
+  className="bg-transparent text-xs font-medium text-gray-700 focus:outline-none dark:text-gray-300 cursor-pointer"
+>
+  {getOrderedLanguages().map((lang) => (
+    <option key={lang.code} value={lang.code} className="dark:bg-gray-900">
+      {lang.label}
+    </option>
+  ))}
+</select>
       </div>
 
       {/* Smart Location Auto-Detect Button */}

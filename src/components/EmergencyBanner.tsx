@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useFontSize } from '@/components/FontSizeContext'
+import { getOrderedLanguages } from '@/lib/regionLanguage'
 
 export default function EmergencyBanner() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { increase, decrease, reset } = useFontSize();
 
   return (
@@ -28,6 +29,19 @@ export default function EmergencyBanner() {
           <button onClick={reset} className="flex h-6 w-6 items-center justify-center rounded bg-paper/10 text-sm font-bold transition hover:bg-paper/20">A</button>
           <button onClick={increase} className="flex h-6 w-6 items-center justify-center rounded bg-paper/10 text-sm font-bold transition hover:bg-paper/20">A+</button>
         </div>
+
+        {/* Language selector */}
+        <select
+          value={i18n.language}
+          onChange={(e) => i18n.changeLanguage(e.target.value)}
+          className="rounded-full border border-paper/30 bg-transparent px-2 py-1 font-label text-xs font-medium text-paper focus:outline-none"
+        >
+          {getOrderedLanguages().map((lang) => (
+            <option key={lang.code} value={lang.code} className="text-ink">
+              {lang.label}
+            </option>
+          ))}
+        </select>
 
         <Link to="/staff-login" className="rounded-full border border-paper/80 px-3 py-1 font-label text-sm font-medium text-paper/90 transition hover:border-paper hover:text-paper">
           {t('PHC staff login')}

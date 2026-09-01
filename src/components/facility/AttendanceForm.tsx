@@ -5,7 +5,7 @@ import Button from '@/components/ui/Button'
 interface AttendanceFormProps {
   staff: Array<{ id: string; name: string; role: string }>
   loading: boolean
-  onSubmit: (staffId: string, status: 'present' | 'absent' | 'on_leave') => Promise<void>
+  onSubmit: (records: Array<{ staffId: string; status: 'present' | 'absent' | 'on_leave' }>) => Promise<void>
 }
 
 export default function AttendanceForm({ staff, loading, onSubmit }: AttendanceFormProps) {
@@ -18,12 +18,14 @@ export default function AttendanceForm({ staff, loading, onSubmit }: AttendanceF
     setSaving(true)
     setMessage(null)
     try {
-      // Note: This loops and makes an API call for every single staff member.
-      // We will upgrade this to a single Supabase batch upsert next!
-      for (const member of staff) {
-        const status = statuses[member.id] ?? 'present'
-        await onSubmit(member.id, status)
-      }
+      const payload = staff.map((member) => ({
+        staffId: member.id,
+        status: statuses[member.id] ?? 'present',
+      }))
+      
+      // Fire the single database request
+      await onSubmit(payload)
+      
       setMessage({ text: t('Attendance saved for all staff.'), isError: false })
     } catch (err) {
       setMessage({ 
