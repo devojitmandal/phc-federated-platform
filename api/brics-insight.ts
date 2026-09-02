@@ -1,4 +1,4 @@
-import { getSupabaseAdmin, callGemini, jsonResponse, errorResponse } from './_lib/utils'
+import { getSupabaseAdmin, jsonResponse, errorResponse } from './_lib/utils'
 
 interface GeminiInsight {
   matched_country: string
@@ -8,20 +8,20 @@ interface GeminiInsight {
 }
 
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method !== 'POST') {
-    return errorResponse('Method not allowed', 405)
-  }
+  if (req.method !== 'POST') return errorResponse('Method not allowed', 405)
 
   try {
     const admin = getSupabaseAdmin()
     const today = new Date().toISOString().slice(0, 10)
 
+    // Fetch at-risk inventory
     const { data: inventory, error: invError } = await admin
       .from('national_inventory_rollup')
       .select('medicine_id, total_quantity, days_of_supply, medicines(name_en, category)')
       .eq('snapshot_date', today)
       .order('days_of_supply', { ascending: true, nullsFirst: false })
       .limit(5)
+    
     if (invError) throw invError
 
     if (!inventory || inventory.length === 0) {
@@ -36,41 +36,69 @@ export default async function handler(req: Request): Promise<Response> {
       const body = await req.json()
       bricsCountries = body?.bricsData ?? []
     } catch {
-      // no body sent — proceed with empty BRICS data, Gemini will note nothing to compare
+      // Proceed with empty BRICS data if no body sent
     }
 
-    const prompt = `You are a global health supply chain analyst comparing India's Primary Health Centre network against recent supply chain interventions in other BRICS nations.
+    const prompt = `
+      You are a global health supply chain analyst.
+      
+      India's current highest-risk medicines (lowest days-of-supply first):
+      ${JSON.stringify(inventory.map((i: any) => ({
+        medicine: i.medicines?.name_en ?? i.medicine_id,
+        category: i.medicines?.category ?? 'unknown',
+        total_quantity: i.total_quantity,
+        days_of_supply: i.days_of_supply,
+      })))}
 
-India's current most at-risk medicines (national aggregate, lowest days-of-supply first):
-${JSON.stringify(
-  inventory.map((i: any) => ({
-    medicine: i.medicines?.name_en ?? i.medicine_id,
-    category: i.medicines?.category ?? 'unknown',
-    total_quantity: i.total_quantity,
-    days_of_supply: i.days_of_supply,
-  })),
-  null,
-  2,
-)}
+      Recent BRICS nation supply chain interventions:
+      ${JSON.stringify(bricsCountries)}
 
-Recent BRICS nation supply chain interventions:
-${JSON.stringify(bricsCountries, null, 2)}
+      INSTRUCTIONS:
+      1. Pick ONE BRICS intervention most relevant to India's highest-risk medicine (match by category/scenario).
+      2. Return ONLY a JSON object.
 
-Pick the ONE BRICS intervention most relevant to India's current highest-risk medicine above (match by category/scenario similarity, not just picking the first one). Return a JSON object with:
-- matched_country (string, exact country name from the list)
-- insight_en (2-3 sentences, English: name the matched country's intervention, its outcome, and a specific actionable recommendation for India's relevant districts)
-- insight_hi (same insight translated to Hindi)
-- confidence ("low" | "medium" | "high" based on how closely the scenario matches)
+      EXPECTED JSON FORMAT:
+      {
+        "matched_country": "Exact Country Name",
+        "insight_en": "2-3 sentences naming the intervention, outcome, and an actionable recommendation for India.",
+        "insight_hi": "The exact same insight translated into Hindi.",
+        "confidence": "low" | "medium" | "high"
+      }
+    `
 
-Return ONLY the JSON object, no other text.`
+    // Replaced generic callGemini with the hardened 3.1 Flash Lite native JSON implementation
+    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        safetySettings: [
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ],
+        generationConfig: { 
+          temperature: 0.3,
+          responseMimeType: "application/json" // Forces strict object generation
+        }
+      })
+    })
 
-    const rawResponse = await callGemini(prompt)
+    const geminiData = await geminiRes.json()
+    
+    // Catch API key or Quota errors directly before they break JSON.parse
+    if (!geminiRes.ok) {
+       throw new Error(`Gemini API Error: ${geminiData.error?.message || 'Unknown error'}`)
+    }
+
+    let rawOutput = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}'
+    
+    // Failsafe Markdown stripper
+    rawOutput = rawOutput.replace(/```json/i, '').replace(/```/g, '').trim()
 
     let insight: GeminiInsight
     try {
-      insight = JSON.parse(rawResponse)
+      insight = JSON.parse(rawOutput)
     } catch {
-      return errorResponse(`Gemini returned invalid JSON: ${rawResponse.slice(0, 500)}`, 502)
+      return errorResponse(`Gemini returned invalid JSON: ${rawOutput.slice(0, 500)}`, 502)
     }
 
     return jsonResponse({

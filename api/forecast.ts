@@ -1,4 +1,4 @@
-import { getSupabaseAdmin, callGemini, parseRequestBody, jsonResponse, errorResponse } from './_lib/utils'
+import { getSupabaseAdmin, parseRequestBody, jsonResponse, errorResponse } from './_lib/utils'
 
 interface ForecastRequestBody {
   scope: 'district' | 'state' | 'national'
@@ -14,7 +14,7 @@ interface GeminiForecastItem {
   warning_hi: string
 }
 
-const MODEL_VERSION = 'gemini-2.0-flash'
+const MODEL_VERSION = 'gemini-3.1-flash-lite'
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
@@ -99,14 +99,37 @@ For EACH medicine, return an object with:
 
 Return ONLY a JSON array of these objects, one per medicine, no other text.`
 
-    const rawResponse = await callGemini(prompt)
+    // Replaced generic callGemini with the hardened 3.1 Flash Lite native JSON implementation
+    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL_VERSION}:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        safetySettings: [
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ],
+        generationConfig: { 
+          temperature: 0.2, // Kept low for consistent mathematical formatting
+          responseMimeType: "application/json"
+        }
+      })
+    })
+
+    const geminiData = await geminiRes.json()
+    
+    if (!geminiRes.ok) {
+       throw new Error(`Gemini API Error: ${geminiData.error?.message || 'Unknown error'}`)
+    }
+
+    let rawOutput = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '[]'
+    rawOutput = rawOutput.replace(/```json/i, '').replace(/```/g, '').trim()
 
     let forecasts: GeminiForecastItem[]
     try {
-      forecasts = JSON.parse(rawResponse)
+      forecasts = JSON.parse(rawOutput)
       if (!Array.isArray(forecasts)) throw new Error('Response is not an array')
     } catch {
-      return errorResponse(`Gemini returned invalid JSON: ${rawResponse.slice(0, 500)}`, 502)
+      return errorResponse(`Gemini returned invalid JSON: ${rawOutput.slice(0, 500)}`, 502)
     }
 
     // 3. Upsert forecasts and create alerts for high/critical risk

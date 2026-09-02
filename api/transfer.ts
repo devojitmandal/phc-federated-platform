@@ -11,20 +11,19 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const { districtId, stateId, medicineId, medicineName } = await req.json()
+    const { districtId, medicineId, medicineName } = await req.json()
 
     const supabaseUrl = process.env.VITE_SUPABASE_URL!
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY! || process.env.VITE_SUPABASE_ANON_KEY!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // 1. Fetch ALL facilities and their latest stock for this specific medicine
+    // 1. Fetch ALL facilities (Removed the missing state_id column)
     const { data: facilities, error: dbError } = await supabase
       .from('facilities')
       .select(`
         id, 
         name_en, 
         district_id,
-        state_id,
         inventory_snapshots ( quantity, unit )
       `)
       .eq('inventory_snapshots.medicine_id', medicineId)
@@ -32,7 +31,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     if (dbError) throw dbError
 
-    // 2. Identify the specific PHC in THIS district that needs the medicine most (The Victim)
+    // 2. Identify the specific PHC in THIS district that needs the medicine most
     let victimFacility = "Unknown PHC"
     let lowestStock = 999999
 
@@ -47,7 +46,7 @@ export default async function handler(req: Request): Promise<Response> {
       return { ...f, qty, unit }
     })
 
-    // 3. The Cascading Escalation Search
+    // 3. The Cascading Escalation Search (Fixed for your DB Schema)
     let surplusSource = null
     let escalationLevel = 'District' 
     let alertLabel = '✅ LOCAL TRANSFER'
@@ -55,22 +54,18 @@ export default async function handler(req: Request): Promise<Response> {
     // Tier 1: Search within the SAME District (Surplus > 50)
     surplusSource = mappedFacilities.find(f => f.district_id === districtId && f.id !== victimFacility && f.qty > 50)
 
-    // Tier 2: Search within the SAME State (Different District)
+    // Tier 2: Search Cross-Border / Regional (Different District)
     if (!surplusSource) {
-      surplusSource = mappedFacilities.find(f => f.state_id === stateId && f.qty > 50)
+      surplusSource = mappedFacilities.find(f => f.district_id !== districtId && f.qty > 50)
       if (surplusSource) {
         escalationLevel = 'State'
         alertLabel = '🟡 STATE ESCALATION'
       }
     }
 
-    // Tier 3: Search National (Any State)
+    // Tier 3: If no surplus > 50 exists anywhere, trigger National Emergency Procurement
     if (!surplusSource) {
-      surplusSource = mappedFacilities.find(f => f.qty > 50)
-      if (surplusSource) {
-        escalationLevel = 'National'
-        alertLabel = '🔴 NATIONAL ESCALATION'
-      }
+      alertLabel = '🔴 NATIONAL ESCALATION'
     }
 
     // 4. Construct the Dynamic Gemini Prompt
@@ -84,8 +79,8 @@ export default async function handler(req: Request): Promise<Response> {
         
         Write a concise, 2-sentence logistics transfer protocol.
         Sentence 1: Authorize the emergency transfer from the surplus facility to the depleted facility.
-        Sentence 2: If the level is State or National, instruct the respective officials to approve the cross-border transport. If Local, instruct immediate dispatch.
-        Keep it highly professional and direct. Do not use markdown.
+        Sentence 2: If the level is State, instruct officials to approve cross-border transport. If Local, instruct immediate dispatch.
+        Keep it professional and direct. Do not use markdown.
       `
     } else {
       prompt = `
@@ -93,30 +88,51 @@ export default async function handler(req: Request): Promise<Response> {
         Facility "${victimFacility}" is out of "${medicineName}". There is absolutely NO surplus available anywhere in the national database.
         Write a 2-sentence emergency procurement alert to the National Health Ministry advising immediate vendor manufacturing or importing.
       `
-      alertLabel = '🚨 CRITICAL SHORTAGE'
     }
 
-    // 5. Generate AI Plan
-    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2 }
-      })
-    })
+    // 5. Generate AI Plan with a Bulletproof Smart Fallback
+    const smartFallback = surplusSource
+      ? `Authorize immediate transfer of ${medicineName} from ${surplusSource.name_en} to ${victimFacility}.`
+      : `Initiate emergency procurement for ${medicineName} at ${victimFacility}.`
 
-    const geminiData = await geminiRes.json()
-    const generatedPlan = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 'Emergency transfer required.'
+    let generatedPlan = smartFallback;
+
+    // Only attempt Gemini if the API key exists
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.2 }
+          })
+        })
+
+        const geminiData = await geminiRes.json()
+        if (geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
+          generatedPlan = geminiData.candidates[0].content.parts[0].text.trim()
+        } else {
+          console.error('Gemini API Warning: Invalid response format', geminiData)
+        }
+      } catch (aiError) {
+        console.error('Gemini API Failed, using smart fallback:', aiError)
+      }
+    } else {
+      console.warn('GEMINI_API_KEY is missing. Using smart fallback.')
+    }
 
     // 6. Return the plan with the appropriate alert badge
     return new Response(JSON.stringify({ 
-      plan: `${alertLabel}: ${generatedPlan.trim()}`,
+      plan: `${alertLabel}: ${generatedPlan}`,
       level: escalationLevel
     }), { status: 200, headers: { 'Content-Type': 'application/json' } })
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Escalation AI Error:', error)
-    return new Response(JSON.stringify({ error: 'Failed to generate transfer plan' }), { status: 500 })
+    return new Response(JSON.stringify({ 
+      error: 'Backend Crash',
+      message: error.message || error.toString()
+    }), { status: 500, headers: { 'Content-Type': 'application/json' } })
   }
 }
