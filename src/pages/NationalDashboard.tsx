@@ -49,8 +49,16 @@ function BricsAnalyticsHub() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bricsData: BRICS_MOCK_DATA }),
       })
+      
+      // 1. If it's a 500 error, grab the raw text instead of forcing JSON
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Server Error: ${errorText.substring(0, 50)}...`);
+      }
+
+      // 2. If it is OK, proceed with JSON
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to generate insight')
+      
       if (!data.insight) {
         setError(data.message || 'No data available to generate an insight yet.')
       } else {

@@ -1,4 +1,7 @@
 import { getSupabaseAdmin, jsonResponse, errorResponse } from './_lib/utils'
+export const config = {
+  runtime: 'edge',
+}
 
 interface GeminiInsight {
   matched_country: string
@@ -76,21 +79,19 @@ export default async function handler(req: Request): Promise<Response> {
         ],
         generationConfig: { 
           temperature: 0.3,
-          responseMimeType: "application/json" // Forces strict object generation
+          responseMimeType: "application/json"
         }
       })
     })
 
     const geminiData = await geminiRes.json()
     
-    // Catch API key or Quota errors directly before they break JSON.parse
     if (!geminiRes.ok) {
        throw new Error(`Gemini API Error: ${geminiData.error?.message || 'Unknown error'}`)
     }
 
     let rawOutput = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}'
     
-    // Failsafe Markdown stripper
     rawOutput = rawOutput.replace(/```json/i, '').replace(/```/g, '').trim()
 
     let insight: GeminiInsight
