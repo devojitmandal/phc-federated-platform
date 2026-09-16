@@ -1,5 +1,5 @@
 // api/transfer.ts
-import { verifyAuth, getSupabaseAdmin, errorResponse, jsonResponse } from './_lib/utils'
+import { verifyAuth, getSupabaseAdmin, errorResponse, jsonResponse } from './_lib/utils.js'
 
 export const config = {
   runtime: 'edge',

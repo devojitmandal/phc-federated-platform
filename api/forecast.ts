@@ -1,5 +1,5 @@
 // api/forecast.ts
-import { verifyAuth, getSupabaseAdmin, parseRequestBody, jsonResponse, errorResponse } from './_lib/utils'
+import { verifyAuth, getSupabaseAdmin, parseRequestBody, jsonResponse, errorResponse } from './_lib/utils.js'
 
 interface ForecastRequestBody {
   scope: 'district' | 'state' | 'national'

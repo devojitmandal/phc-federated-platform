@@ -1,5 +1,5 @@
 // api/redistribute.ts
-import { verifyAuth, getSupabaseAdmin, callGemini, jsonResponse, errorResponse } from './_lib/utils'
+import { verifyAuth, getSupabaseAdmin, callGemini, jsonResponse, errorResponse } from './_lib/utils.js'
 
 export const config = {
   runtime: 'edge',
