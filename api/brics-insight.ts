@@ -66,7 +66,6 @@ export default async function handler(req: Request): Promise<Response> {
       }
     `
 
-    // Replaced generic callGemini with the hardened 3.1 Flash Lite native JSON implementation
     const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
