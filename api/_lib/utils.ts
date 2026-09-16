@@ -1,4 +1,6 @@
-import { createClient } from '@supabase/supabase-js'
+// api/_lib/utils.ts
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import type { Profile, UserRole } from '../../src/types/database'
 
 export function getSupabaseAdmin() {
   const url = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL
@@ -13,14 +15,53 @@ export function getGeminiApiKey() {
   return key
 }
 
+// NEW: Centralized Authentication & Role Guard Middleware
+export async function verifyAuth(
+  req: Request, 
+  allowedRoles?: UserRole[]
+): Promise<{ user: any; profile: Profile; supabase: SupabaseClient }> {
+  const authHeader = req.headers.get('authorization')
+  if (!authHeader?.startsWith('Bearer ')) {
+    throw new Error('Unauthorized: Missing or invalid authorization header')
+  }
+  
+  const token = authHeader.split(' ')[1]
+  const url = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY
+  
+  if (!url || !anonKey) throw new Error('Server misconfiguration: Missing Supabase URL/Anon Key')
+
+  // Use the Anon key to verify the user's JWT securely
+  const supabase = createClient(url, anonKey, { auth: { autoRefreshToken: false, persistSession: false } })
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+  if (authError || !user) throw new Error('Unauthorized: Invalid or expired token')
+
+  // Fetch trusted profile data directly from the database
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile) throw new Error('Unauthorized: Profile not found')
+
+  // Role-based Access Control (RBAC) check
+  if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(profile.role as UserRole)) {
+    throw new Error(`Forbidden: Role '${profile.role}' is not authorized to perform this action`)
+  }
+
+  return { user, profile: profile as Profile, supabase }
+}
+
 export async function callGemini(prompt: string): Promise<string> {
   const apiKey = getGeminiApiKey()
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 20000) // 20s timeout
+  const timeout = setTimeout(() => controller.abort(), 20000)
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

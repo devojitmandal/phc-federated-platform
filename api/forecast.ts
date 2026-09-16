@@ -1,4 +1,5 @@
-import { getSupabaseAdmin, parseRequestBody, jsonResponse, errorResponse } from './_lib/utils'
+// api/forecast.ts
+import { verifyAuth, getSupabaseAdmin, parseRequestBody, jsonResponse, errorResponse } from './_lib/utils'
 
 interface ForecastRequestBody {
   scope: 'district' | 'state' | 'national'
@@ -22,20 +23,33 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
+    // 1. AUTHENTICATE & AUTHORIZE
+    const { profile } = await verifyAuth(req, ['district_admin', 'state_viewer', 'national_admin'])
     const body = await parseRequestBody<ForecastRequestBody>(req)
-    const { scope, scopeId } = body
+    
+    let { scope, scopeId } = body
+
+    // 2. ENFORCE ZERO-TRUST BOUNDARIES
+    // Override the requested scope with the user's actual jurisdiction
+    if (profile.role === 'district_admin') {
+      scope = 'district'
+      scopeId = profile.district_id ?? undefined
+    } else if (profile.role === 'state_viewer') {
+      scope = 'state'
+      scopeId = profile.state_id ?? undefined
+    }
 
     if (scope === 'district' && !scopeId) {
-      return errorResponse('scopeId is required for district scope', 400)
+      return errorResponse('Unauthorized: No district assigned to this admin', 403)
     }
     if (scope === 'state' && !scopeId) {
-      return errorResponse('scopeId is required for state scope', 400)
+      return errorResponse('Unauthorized: No state assigned to this admin', 403)
     }
 
     const admin = getSupabaseAdmin()
     const today = new Date().toISOString().slice(0, 10)
 
-    // 1. Fetch the relevant rollup rows for this scope
+    // 3. Fetch the relevant rollup rows for this scope
     let rollupRows: Array<{
       medicine_id: string
       total_quantity: number
@@ -73,7 +87,7 @@ export default async function handler(req: Request): Promise<Response> {
       return jsonResponse({ message: 'No rollup data for this scope/date. Run recalculate rollups first.', forecasts: [] })
     }
 
-    // 2. Build a single structured prompt covering every medicine in this scope
+    // 4. Build a single structured prompt covering every medicine in this scope
     const medicineSummaries = rollupRows.map((r) => ({
       medicine_id: r.medicine_id,
       name_en: r.medicines?.name_en ?? 'Unknown',
@@ -108,7 +122,7 @@ Return ONLY a JSON array of these objects, one per medicine, no other text.`
           { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
         ],
         generationConfig: { 
-          temperature: 0.2, // Kept low for consistent mathematical formatting
+          temperature: 0.2,
           responseMimeType: "application/json"
         }
       })
@@ -131,7 +145,7 @@ Return ONLY a JSON array of these objects, one per medicine, no other text.`
       return errorResponse(`Gemini returned invalid JSON: ${rawOutput.slice(0, 500)}`, 502)
     }
 
-    // 3. Upsert forecasts and create alerts for high/critical risk
+    // 5. Upsert forecasts and create alerts for high/critical risk
     const forecastRows = forecasts.map((f) => ({
       scope,
       scope_id: scope === 'national' ? null : scopeId,
@@ -178,7 +192,10 @@ Return ONLY a JSON array of these objects, one per medicine, no other text.`
       forecasts_generated: forecastRows.length,
       alerts_generated: alertRows.length,
     })
-  } catch (err) {
-    return errorResponse(err instanceof Error ? err.message : 'Unknown error', 500)
+  } catch (error: any) {
+    if (error.message?.includes('Unauthorized') || error.message?.includes('Forbidden')) {
+      return errorResponse(error.message, 403)
+    }
+    return errorResponse(error.message || 'Unknown error', 500)
   }
 }

@@ -1,4 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
+// api/redistribute.ts
+import { verifyAuth, getSupabaseAdmin, callGemini, jsonResponse, errorResponse } from './_lib/utils'
 
 export const config = {
   runtime: 'edge',
@@ -19,19 +20,46 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 })
+    return errorResponse('Method not allowed', 405)
   }
 
   try {
-    const { overloadedFacilityId, overloadedFacilityName, issueType } = await req.json()
+    // 1. AUTHENTICATE
+    const { profile } = await verifyAuth(req)
+    let { overloadedFacilityId, issueType } = await req.json()
 
-    // 1. Initialize Supabase Admin Client
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY! || process.env.VITE_SUPABASE_ANON_KEY!
-    const supabase = createClient(supabaseUrl, supabaseKey)
+    // 2. ENFORCE BOUNDARIES (Zero-Trust)
+    // If the user is a facility worker, force the ID to their assigned facility
+    if (profile.role === 'facility_worker') {
+      overloadedFacilityId = profile.facility_id
+    }
 
-    // 2. Fetch ALL facilities so we can find the source's exact coordinates
-    const { data: facilities, error: dbError } = await supabase
+    if (!overloadedFacilityId) {
+      return errorResponse('Facility ID is required', 400)
+    }
+
+    // 3. Initialize Supabase Admin Client
+    // We use the admin client here to fetch nearby cross-district facilities for emergency diversion
+    const supabaseAdmin = getSupabaseAdmin()
+
+    // 4. Fetch and Verify Source Facility Jurisdiction
+    const { data: sourceFacility, error: sourceErr } = await supabaseAdmin
+      .from('facilities')
+      .select('id, name_en, lat, lng, district_id')
+      .eq('id', overloadedFacilityId)
+      .single()
+
+    if (sourceErr || !sourceFacility) {
+      return errorResponse('Source facility not found', 404)
+    }
+
+    // If district admin, ensure the facility actually belongs to their district
+    if (profile.role === 'district_admin' && sourceFacility.district_id !== profile.district_id) {
+      return errorResponse('Forbidden: Facility is outside your district jurisdiction', 403)
+    }
+
+    // 5. Fetch ALL candidate facilities for diversion
+    const { data: facilities, error: dbError } = await supabaseAdmin
       .from('facilities')
       .select(`
         id, 
@@ -43,39 +71,34 @@ export default async function handler(req: Request): Promise<Response> {
     
     if (dbError) throw dbError
 
-    // 3. Find the overloaded facility to act as our geographic origin point
-    const sourceFacility = facilities.find(f => f.id === overloadedFacilityId)
-    if (!sourceFacility) throw new Error("Source facility not found")
-
-    // 4. Calculate distance, filter by capacity, and sort locally
+    // 6. Calculate distance, filter by capacity, and sort locally
     const availableFacilities = facilities
-      .filter(f => f.id !== overloadedFacilityId)
+      .filter(f => f.id !== overloadedFacilityId && f.lat && f.lng)
       .map(f => {
         const beds = Array.isArray(f.bed_status) ? f.bed_status[0] : f.bed_status
         const total = beds?.total_beds ?? 0
         const occupied = beds?.occupied_beds ?? 0
         const available = total - occupied
         
-        // Use our local function to find exact km distance
-        const distance = getDistance(sourceFacility.lat, sourceFacility.lng, f.lat, f.lng)
+        const distance = getDistance(sourceFacility.lat!, sourceFacility.lng!, f.lat!, f.lng!)
         
         return { ...f, available, distance }
       })
       .filter(f => f.available >= 2)
-      .sort((a, b) => a.distance - b.distance) // Sort closest to furthest
+      .sort((a, b) => a.distance - b.distance)
 
     if (availableFacilities.length === 0) {
-      return new Response(JSON.stringify({ 
+      return jsonResponse({ 
         plan: "CRITICAL: No nearby facilities have available beds. Alerting state officials for immediate field hospital deployment.",
         targetFacility: null
-      }), { status: 200 })
+      })
     }
 
-    // 5. Construct the Gemini AI Prompt using the mathematical closest target
+    // 7. Construct the Gemini AI Prompt
     const target = availableFacilities[0]
     const prompt = `
       You are an AI logistics coordinator for a regional health department.
-      The facility "${overloadedFacilityName}" has reported a critical ${issueType} (95%+ capacity).
+      The facility "${sourceFacility.name_en}" has reported a critical ${issueType || 'overload'} (95%+ capacity).
       
       I have found an alternative facility: "${target.name_en}" which has ${target.available} beds currently available and is ${target.distance.toFixed(1)} km away.
       
@@ -85,31 +108,25 @@ export default async function handler(req: Request): Promise<Response> {
       Do not use markdown, keep it professional and direct.
     `
 
-    // 6. Ping Gemini to generate the human-readable plan
-    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GOOGLE_AI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2 } // Keep it strict and logistical
-      })
-    })
+    // 8. Generate the Plan using the unified utility function
+    let generatedPlan = `Divert traffic from ${sourceFacility.name_en} to ${target.name_en}.`
+    try {
+      generatedPlan = await callGemini(prompt)
+    } catch (aiError) {
+      console.error('Gemini API Failed, using smart fallback:', aiError)
+    }
 
-    const geminiData = await geminiRes.json()
-    const generatedPlan = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || 
-      `Divert traffic from ${overloadedFacilityName} to ${target.name_en}.`
-
-    // 7. Return the structured response to the frontend
-    return new Response(JSON.stringify({
+    // 9. Return the structured response
+    return jsonResponse({
       plan: generatedPlan.trim(),
       targetFacility: target
-    }), { 
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
     })
 
-  } catch (error) {
+  } catch (error: any) {
+    if (error.message?.includes('Unauthorized') || error.message?.includes('Forbidden')) {
+      return errorResponse(error.message, 403)
+    }
     console.error('Redistribution Error:', error)
-    return new Response(JSON.stringify({ error: 'Failed to generate mitigation plan' }), { status: 500 })
+    return errorResponse(error.message || 'Failed to generate mitigation plan', 500)
   }
 }

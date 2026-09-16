@@ -1,4 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
+// api/transfer.ts
+import { verifyAuth, getSupabaseAdmin, errorResponse, jsonResponse } from './_lib/utils'
 
 export const config = {
   runtime: 'edge',
@@ -6,18 +7,26 @@ export const config = {
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 })
+    return errorResponse('Method not allowed', 405)
   }
 
   try {
-    const { districtId, medicineId, medicineName } = await req.json()
+    // 1. AUTHENTICATE & AUTHORIZE
+    // Only allow District, State, and National admins to request transfers
+    const { profile } = await verifyAuth(req, ['district_admin', 'state_viewer', 'national_admin'])
+    const { medicineId, medicineName } = await req.json()
 
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY! || process.env.VITE_SUPABASE_ANON_KEY!
-    const supabase = createClient(supabaseUrl, supabaseKey)
+    // 2. ENFORCE BOUNDARIES (Zero-Trust)
+    // If the user is a district admin, force the request to use THEIR assigned district.
+    // Do not trust a district ID sent from the frontend payload.
+    const targetDistrictId = profile.role === 'district_admin' ? profile.district_id : null
+    
+    // We use the admin client here ONLY because a district admin needs read access 
+    // to cross-border facilities to search for surplus stock (which RLS normally blocks).
+    const supabaseAdmin = getSupabaseAdmin()
 
-    // 1. Fetch ALL facilities across the network
-    const { data: facilities, error: dbError } = await supabase
+    // 3. Fetch ALL facilities across the network
+    const { data: facilities, error: dbError } = await supabaseAdmin
       .from('facilities')
       .select(`
         id, 
@@ -30,7 +39,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     if (dbError) throw dbError
 
-    // 2. Identify the specific PHC in the target district that needs the medicine most
+    // 4. Identify the specific PHC in the target district that needs the medicine most
     let victimFacility = "Unknown PHC"
     let lowestStock = 999999
 
@@ -38,26 +47,26 @@ export default async function handler(req: Request): Promise<Response> {
       const qty = f.inventory_snapshots?.[0]?.quantity || 0
       const unit = f.inventory_snapshots?.[0]?.unit || 'units'
       
-      if ((!districtId || f.district_id === districtId) && qty < lowestStock) {
+      if ((!targetDistrictId || f.district_id === targetDistrictId) && qty < lowestStock) {
         lowestStock = qty
         victimFacility = f.name_en
       }
       return { ...f, qty, unit }
     })
 
-    // 3. The Cascading Escalation Search
+    // 5. The Cascading Escalation Search
     let surplusSource = null
     let escalationLevel = 'District' 
     let alertLabel = '✅ LOCAL TRANSFER'
 
     // Tier 1: Search within the SAME District (Surplus > 50)
-    if (districtId) {
-      surplusSource = mappedFacilities.find(f => f.district_id === districtId && f.name_en !== victimFacility && f.qty > 50)
+    if (targetDistrictId) {
+      surplusSource = mappedFacilities.find(f => f.district_id === targetDistrictId && f.name_en !== victimFacility && f.qty > 50)
     }
 
     // Tier 2: Search Cross-Border / Regional (Different District)
     if (!surplusSource) {
-      surplusSource = mappedFacilities.find(f => f.district_id !== districtId && f.qty > 50)
+      surplusSource = mappedFacilities.find(f => f.district_id !== targetDistrictId && f.qty > 50)
       if (surplusSource) {
         escalationLevel = 'State'
         alertLabel = '🟡 STATE ESCALATION'
@@ -70,7 +79,7 @@ export default async function handler(req: Request): Promise<Response> {
       alertLabel = '🔴 NATIONAL ESCALATION'
     }
 
-    // 4. Construct the Dynamic Gemini Prompt
+    // 6. Construct the Dynamic Gemini Prompt
     let prompt = ''
     if (surplusSource) {
       prompt = `
@@ -92,13 +101,12 @@ export default async function handler(req: Request): Promise<Response> {
       `
     }
 
-    // 5. Generate AI Plan with a Bulletproof Smart Fallback
+    // 7. Generate AI Plan with a Bulletproof Smart Fallback
     const smartFallback = surplusSource
       ? `Authorize immediate transfer of ${medicineName} from ${surplusSource.name_en} to ${victimFacility}.`
       : `Initiate emergency procurement for ${medicineName} at ${victimFacility}.`
 
     let generatedPlan = smartFallback;
-
     const apiKey = process.env.GOOGLE_AI_API_KEY
     if (apiKey) {
       try {
@@ -120,38 +128,39 @@ export default async function handler(req: Request): Promise<Response> {
       }
     }
 
-    // 6. DB PERSISTENCE: Write Tier 2 and Tier 3 escalations to the database
+    // 8. DB PERSISTENCE: Write Tier 2 and Tier 3 escalations to the database
     if (escalationLevel === 'State' || escalationLevel === 'National') {
       const suggestedQty = surplusSource ? Math.floor(surplusSource.qty * 0.3) : 500;
 
-      await supabase.from('redistribution_recommendations').insert({
+      await supabaseAdmin.from('redistribution_recommendations').insert({
         medicine_id: medicineId,
         from_district_id: surplusSource?.district_id || null,
-        to_district_id: districtId,
+        to_district_id: targetDistrictId,
         suggested_quantity: suggestedQty,
         reason_en: generatedPlan,
         reason_hi: generatedPlan,
         status: 'suggested'
       });
 
-      await supabase.from('alerts').insert({
+      await supabaseAdmin.from('alerts').insert({
         title_en: `${escalationLevel} Escalation: ${medicineName}`,
         severity: escalationLevel === 'State' ? 'warning' : 'critical',
         body_en: generatedPlan,
+        body_hi: generatedPlan,
         scope: escalationLevel.toLowerCase(),
         alert_type: escalationLevel === 'State' ? 'low_stock' : 'stockout'
       });
     }
 
-    return new Response(JSON.stringify({ 
+    return jsonResponse({ 
       plan: `${alertLabel}: ${generatedPlan}`,
       level: escalationLevel
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
 
   } catch (error: any) {
-    return new Response(JSON.stringify({ 
-      error: 'Backend Crash',
-      message: error.message || error.toString()
-    }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+    if (error.message?.includes('Unauthorized') || error.message?.includes('Forbidden')) {
+      return errorResponse(error.message, 403)
+    }
+    return errorResponse(error.message || 'Internal Server Error', 500)
   }
 }

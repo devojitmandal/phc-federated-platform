@@ -16,7 +16,8 @@ export default function RoleGuard({ allowed, children }: RoleGuardProps) {
   }
 
   if (!profile) {
-    return <Navigate to="/login" replace />
+    // Redirect unauthenticated users to the correct staff login route
+    return <Navigate to="/staff-login" replace />
   }
 
   if (!allowed.includes(profile.role)) {

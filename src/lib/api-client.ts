@@ -1,7 +1,18 @@
+// src/lib/api-client.ts
 import type { ForecastResponse, VoiceTranscribeResponse } from '@/types/api'
+import { supabase } from './supabase'
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init)
+  // NEW: Automatically grab the user's session and attach it to the request
+  const { data: { session } } = await supabase.auth.getSession()
+  
+  const headers = new Headers(init?.headers)
+  if (session?.access_token) {
+    headers.set('Authorization', `Bearer ${session.access_token}`)
+  }
+
+  const res = await fetch(path, { ...init, headers })
+  
   if (!res.ok) {
     const body = await res.text()
     throw new Error(body || `API error ${res.status}`)
@@ -39,7 +50,6 @@ export async function applyVoiceStock(sessionId: string) {
 }
 
 export async function refreshRollups(districtId?: string) {
-  const { supabase } = await import('./supabase')
   const { data, error } = await supabase.rpc('refresh_rollups', {
     p_district_id: districtId ?? null,
   })

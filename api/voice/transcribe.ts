@@ -1,20 +1,30 @@
-import { createClient } from '@supabase/supabase-js'
+// api/voice/transcribe.ts
+import { verifyAuth, getSupabaseAdmin, jsonResponse, errorResponse } from '../_lib/utils'
 
 export const config = { runtime: 'edge' }
 
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
+  if (req.method !== 'POST') return errorResponse('Method not allowed', 405)
 
   try {
-    const { transcript, facilityId } = await req.json()
+    // 1. AUTHENTICATE & EXTRACT TRUSTED ID
+    // Restrict access strictly to facility workers
+    const { profile } = await verifyAuth(req, ['facility_worker'])
+    
+    // Ignore any facilityId sent from the frontend. Use the trusted database value.
+    const trustedFacilityId = profile.facility_id
+    if (!trustedFacilityId) {
+      return errorResponse('Unauthorized: Your profile is not assigned to a facility', 403)
+    }
+
+    const { transcript } = await req.json()
     console.log('\n--- 🎙️ NEW VOICE LOG REQUEST ---')
+    console.log(`User: ${profile.id} | Facility: ${trustedFacilityId}`)
     console.log('1. Transcript Received:', transcript)
 
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY! || process.env.VITE_SUPABASE_ANON_KEY!
-    const supabase = createClient(supabaseUrl, supabaseKey)
+    const supabaseAdmin = getSupabaseAdmin()
 
-    const { data: meds, error: dbError } = await supabase.from('medicines').select('id, name_en, name_hi')
+    const { data: meds, error: dbError } = await supabaseAdmin.from('medicines').select('id, name_en, name_hi')
     if (dbError) throw new Error(`Supabase Fetch Error: ${dbError.message}`)
     
     const medsDatabase = meds?.map(m => ({
@@ -26,7 +36,7 @@ export default async function handler(req: Request): Promise<Response> {
     console.log('2. Medicines loaded from DB:', meds?.length || 0, 'items found')
 
     if (!meds || meds.length === 0) {
-      return new Response(JSON.stringify({ success: false, count: 0 }), { status: 200 })
+      return jsonResponse({ success: false, count: 0 })
     }
 
     const prompt = `
@@ -50,7 +60,6 @@ export default async function handler(req: Request): Promise<Response> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        // BYPASS SAFETY FILTERS FOR MEDICAL INVENTORY APP
         safetySettings: [
           { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
           { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -65,8 +74,6 @@ export default async function handler(req: Request): Promise<Response> {
     })
 
     const geminiData = await geminiRes.json()
-    
-    // NEW: Log the entire raw API response to see if there are safety blocks or errors
     console.log('4. RAW GEMINI API PAYLOAD:', JSON.stringify(geminiData, null, 2))
     
     let rawOutput = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '[]'
@@ -75,25 +82,31 @@ export default async function handler(req: Request): Promise<Response> {
     console.log('5. Successfully Parsed JSON:', parsedData)
 
     if (parsedData.length === 0) {
-      return new Response(JSON.stringify({ success: false, count: 0 }), { status: 200 })
+      return jsonResponse({ success: false, count: 0 })
     }
 
+    // 2. ENFORCE DATA INTEGRITY
+    // Inject the trusted IDs into the database insert
     const inserts = parsedData.map((item: any) => ({
-      facility_id: facilityId,
+      facility_id: trustedFacilityId,
+      recorded_by: profile.id, // Audit trail mapping
       medicine_id: item.medicine_id,
       quantity: item.quantity,
       unit: item.unit || 'units',
       source: 'voice' 
     }))
 
-    const { error: insertError } = await supabase.from('inventory_snapshots').insert(inserts)
+    const { error: insertError } = await supabaseAdmin.from('inventory_snapshots').insert(inserts)
     if (insertError) throw new Error(`Supabase Insert Error: ${insertError.message}`)
 
     console.log('✅ Successfully inserted to database!')
-    return new Response(JSON.stringify({ success: true, count: inserts.length }), { status: 200 })
+    return jsonResponse({ success: true, count: inserts.length })
 
   } catch (error: any) {
+    if (error.message?.includes('Unauthorized') || error.message?.includes('Forbidden')) {
+      return errorResponse(error.message, 403)
+    }
     console.error('❌ CATCH BLOCK ERROR:', error.message || error)
-    return new Response(JSON.stringify({ success: false, error: 'Backend Crash' }), { status: 500 })
+    return errorResponse('Backend Crash', 500)
   }
 }
