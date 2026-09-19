@@ -50,7 +50,7 @@ export default function DistrictDashboard() {
     timestamp: string 
   }>>([])
 
-  // Data States (allFacilitiesBeds state removed)
+  // Data States
   const [criticalFacilities, setCriticalFacilities] = useState<{
     beds: Array<{ id: string; name: string; available: number }>;
     meds: Record<string, Array<{ name: string; qty: number }>>;
@@ -175,10 +175,10 @@ export default function DistrictDashboard() {
         .order('recorded_at', { ascending: false });
         
       if (!data) return;
-       
+        
       const facilityMap = new Map<string, { name: string, stock: any[] }>();
       const seen = new Set();
-       
+        
       data.forEach((row: any) => {
         const facId = Array.isArray(row.facilities) ? row.facilities[0].id : row.facilities?.id;
         const facName = Array.isArray(row.facilities) ? row.facilities[0].name_en : row.facilities?.name_en;
@@ -198,7 +198,7 @@ export default function DistrictDashboard() {
           });
         }
       });
-       
+        
       setHospitalStocks(Array.from(facilityMap.values()));
     }
     if (!loading) fetchHospitalBreakdown();
@@ -229,9 +229,14 @@ export default function DistrictDashboard() {
   const handleBedAI = async (facId: string, facName: string) => {
     setPlanningBedId(facId)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+
       const res = await fetch('/api/redistribute', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}` 
+        },
         body: JSON.stringify({
           overloadedFacilityId: facId,
           overloadedFacilityName: facName,
@@ -398,9 +403,14 @@ export default function DistrictDashboard() {
                         onClick={async () => {
                           setPlanningMedId(med.medicine_id)
                           try {
+                            const { data: { session } } = await supabase.auth.getSession()
+
                             const res = await fetch('/api/transfer', {
                               method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
+                              headers: { 
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${session?.access_token}` // ✅ FIX 2: Add Token to Headers
+                              },
                               body: JSON.stringify({
                                 districtId: profile?.district_id,
                                 stateId: district?.state_id,
