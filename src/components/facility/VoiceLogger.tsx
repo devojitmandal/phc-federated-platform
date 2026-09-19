@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { supabase } from '@/lib/supabase' // ✅ Added Supabase import
 
 export default function VoiceLogger({ 
   facilityId, 
@@ -64,9 +65,16 @@ export default function VoiceLogger({
     setIsProcessing(true)
     
     try {
+      // ✅ 1. Get the current user session
+      const { data: { session } } = await supabase.auth.getSession()
+
+      // ✅ 2. Attach the Authorization token to the headers
       const res = await fetch('/api/voice/transcribe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}` // FIX IS HERE
+        },
         body: JSON.stringify({ transcript, facilityId })
       })
       
@@ -76,7 +84,7 @@ export default function VoiceLogger({
         setTranscript('')
         onApplied() // Refreshes the recent entries table in the parent component
       } else {
-        setToast({ type: 'error', msg: 'AI could not identify the medicines. Please try again.' })
+        setToast({ type: 'error', msg: data.error || 'AI could not identify the medicines. Please try again.' })
       }
     } catch (error) {
       setToast({ type: 'error', msg: 'Failed to process voice log.' })
