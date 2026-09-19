@@ -7,6 +7,7 @@ import Card from '@/components/ui/Card'
 import { useProfile } from '@/hooks/useProfile'
 import { useRollups } from '@/hooks/useRollups'
 import { supabase } from '@/lib/supabase'
+import { requestTransferPlan, requestRedistribute } from '@/lib/api-client'
 import type {
   DistrictAttendanceRollup,
   DistrictBedRollup,
@@ -229,22 +230,12 @@ export default function DistrictDashboard() {
   const handleBedAI = async (facId: string, facName: string) => {
     setPlanningBedId(facId)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-
-      const res = await fetch('/api/redistribute', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}` 
-        },
-        body: JSON.stringify({
-          overloadedFacilityId: facId,
-          overloadedFacilityName: facName,
-          issueType: 'bed shortage'
-        })
+      // ✅ Now using the secure api-client wrapper!
+      const data = await requestRedistribute({
+        overloadedFacilityId: facId,
+        overloadedFacilityName: facName,
+        issueType: 'bed shortage'
       })
-      
-      const data = await res.json()
       
       if (data.plan) {
         const formattedPlan = data.plan.startsWith('CRITICAL') || data.plan.startsWith('🚨') 
@@ -403,22 +394,12 @@ export default function DistrictDashboard() {
                         onClick={async () => {
                           setPlanningMedId(med.medicine_id)
                           try {
-                            const { data: { session } } = await supabase.auth.getSession()
-
-                            const res = await fetch('/api/transfer', {
-                              method: 'POST',
-                              headers: { 
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${session?.access_token}` // ✅ FIX 2: Add Token to Headers
-                              },
-                              body: JSON.stringify({
-                                districtId: profile?.district_id,
-                                stateId: district?.state_id,
-                                medicineId: med.medicine_id,
-                                medicineName: displayName
-                              })
+                            // ✅ Now using the secure api-client wrapper!
+                            const data = await requestTransferPlan({
+                              medicineId: med.medicine_id,
+                              medicineName: displayName
                             })
-                            const data = await res.json()
+                            
                             if (data.plan) {
                               setAiPlans(prev => ({ ...prev, [med.medicine_id]: data.plan }))
                             }
