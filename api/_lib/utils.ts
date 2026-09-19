@@ -37,12 +37,13 @@ export async function verifyAuth(
   const { data: { user }, error: authError } = await supabase.auth.getUser(token)
   if (authError || !user) throw new Error('Unauthorized: Invalid or expired token')
 
-  // Fetch trusted profile data directly from the database
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
+    const supabaseAdmin = getSupabaseAdmin()
+  
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single()
 
   if (profileError || !profile) throw new Error('Unauthorized: Profile not found')
 
