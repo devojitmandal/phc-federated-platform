@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import Button from '@/components/ui/Button'
+import { requestRedistribute } from '@/lib/api-client'
 
 interface BedFormProps {
   facilityId?: string
@@ -49,17 +50,12 @@ export default function BedForm({ facilityId, facilityName, bedCapacity, loading
       if (calculatedPct >= 95 && facilityId && facilityName) {
         setAiPlan('🚨 Critical capacity reached. Gemini AI is analyzing regional network for diversion protocol...')
         
-        const res = await fetch('/api/redistribute', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            overloadedFacilityId: facilityId,
-            overloadedFacilityName: facilityName,
-            issueType: 'Bed capacity overload (95%+)'
-          })
+        const data = await requestRedistribute({
+          overloadedFacilityId: facilityId,
+          overloadedFacilityName: facilityName,
+          issueType: 'Bed capacity overload (95%+)'
         })
-        
-        const data = await res.json()
+                
         if (data.plan) {
           setAiPlan(`🚨 AI DIVERSION ACTIVE: ${data.plan}`)
         }

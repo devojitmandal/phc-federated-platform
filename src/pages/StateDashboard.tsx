@@ -6,6 +6,7 @@ import Badge from '@/components/ui/Badge'
 import { useProfile } from '@/hooks/useProfile'
 import { useStateRollups } from '@/hooks/useRollups'
 import { refreshRollups } from '@/lib/api-client'
+import { requestTransferPlan } from '@/lib/api-client'
 import { supabase } from '@/lib/supabase'
 import type {
   Alert,
@@ -140,15 +141,11 @@ export default function StateDashboard() {
     const key = `${esc.district_id}-${esc.medicine_id}`
     setPlanningId(key)
     try {
-      await fetch('/api/transfer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          districtId: esc.district_id,
-          medicineId: esc.medicine_id,
-          medicineName: Array.isArray(esc.medicines) ? esc.medicines[0]?.name_en : esc.medicines?.name_en
-        })
+      await requestTransferPlan({
+        medicineId: esc.medicine_id,
+        medicineName: Array.isArray(esc.medicines) ? esc.medicines[0]?.name_en : esc.medicines?.name_en
       })
+    
       await loadData()
       setToast('AI Protocol drafted. Review in Recommendations panel.')
       setTimeout(() => setToast(null), 4000)
