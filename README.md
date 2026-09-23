@@ -262,7 +262,7 @@ The goal is to reduce the information gap between healthcare infrastructure and 
 
 The platform follows a hierarchical federated healthcare architecture.
 
-NATIONAL
+                   NATIONAL
                        │
               ┌────────┴────────┐
               │                 │
@@ -372,7 +372,7 @@ Gemini AI
       ├── Analysis
       ├── Explanations
       ├── Recommendations
-      └── Natural-Language Processing
+      └── Natural-Language Processing (Later this will be scaled using Google Cloud Speech-to-Text integration)
       │
       ▼
 Human Decision Maker
